@@ -19,8 +19,30 @@ create table profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text not null,
   full_name text,
+  is_admin boolean not null default false,
   created_at timestamptz not null default now()
 );
+
+-- Prevent a regular user from self-promoting via a direct API call —
+-- only the service_role key (used by the Team admin server actions) or
+-- direct SQL editor / admin DB access may change this column.
+create function prevent_self_admin_escalation()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if new.is_admin is distinct from old.is_admin
+     and current_user not in ('service_role', 'postgres', 'supabase_admin') then
+    new.is_admin := old.is_admin;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger profiles_prevent_admin_escalation
+  before update on profiles
+  for each row execute procedure prevent_self_admin_escalation();
 
 create function handle_new_user()
 returns trigger
@@ -160,3 +182,9 @@ create index tasks_project_id_idx on tasks (project_id);
 create index tasks_assignee_id_idx on tasks (assignee_id);
 create index tasks_status_idx on tasks (status);
 create index tasks_due_date_idx on tasks (due_date);
+
+-- ============================================================
+-- After running this, make yourself an admin (replace with your real email)
+-- so you can access the Team page:
+--   update profiles set is_admin = true where email = 'you@example.com';
+-- ============================================================

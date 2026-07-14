@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Pencil } from "lucide-react";
 import { FlagBadges, PriorityBadge, StatusBadge } from "@/components/tasks/flag-badge";
 import { TaskQuickActions } from "@/components/tasks/task-quick-actions";
@@ -30,8 +31,16 @@ import {
 const ALL = "__all__";
 
 type GroupBy = "none" | "project" | "assignee" | "category" | "status";
+type SortBy = "due_date" | "status" | "project" | "assignee";
 type FlagFilter = "any" | "needs_help" | "behind_schedule" | "urgent" | "none";
 type ViewMode = "list" | "kanban";
+
+const SORT_BY_LABELS: Record<SortBy, string> = {
+  due_date: "Due date",
+  status: "Status",
+  project: "Project",
+  assignee: "Assignee",
+};
 
 const FLAG_LABELS: Record<FlagFilter, string> = {
   any: "Any flag",
@@ -65,26 +74,62 @@ export function DashboardView({ tasks, projects, categories, profiles, tags }: D
   const [statusFilter, setStatusFilter] = useState(ALL);
   const [flagFilter, setFlagFilter] = useState<FlagFilter>("any");
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
+  const [sortBy, setSortBy] = useState<SortBy>("due_date");
+  const [includeCompleted, setIncludeCompleted] = useState(true);
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return tasks.filter((task) => {
-      if (projectFilter !== ALL && task.project_id !== projectFilter) return false;
-      if (assigneeFilter !== ALL && task.assignee_id !== assigneeFilter) return false;
-      if (categoryFilter !== ALL && task.category_id !== categoryFilter) return false;
-      if (statusFilter !== ALL && task.status !== statusFilter) return false;
-      if (flagFilter === "needs_help" && !task.needs_help) return false;
-      if (flagFilter === "behind_schedule" && !task.is_behind_schedule) return false;
-      if (flagFilter === "urgent" && !task.is_urgent) return false;
-      if (flagFilter === "none" && (task.needs_help || task.is_behind_schedule || task.is_urgent)) return false;
-      if (query) {
-        const haystack = `${task.title} ${task.tags.map((t) => t.name).join(" ")}`.toLowerCase();
-        if (!haystack.includes(query)) return false;
-      }
-      return true;
-    });
-  }, [tasks, projectFilter, assigneeFilter, categoryFilter, statusFilter, flagFilter, search]);
+    return tasks
+      .filter((task) => {
+        if (!includeCompleted && task.status === "done") return false;
+        if (projectFilter !== ALL && task.project_id !== projectFilter) return false;
+        if (assigneeFilter !== ALL && task.assignee_id !== assigneeFilter) return false;
+        if (categoryFilter !== ALL && task.category_id !== categoryFilter) return false;
+        if (statusFilter !== ALL && task.status !== statusFilter) return false;
+        if (flagFilter === "needs_help" && !task.needs_help) return false;
+        if (flagFilter === "behind_schedule" && !task.is_behind_schedule) return false;
+        if (flagFilter === "urgent" && !task.is_urgent) return false;
+        if (flagFilter === "none" && (task.needs_help || task.is_behind_schedule || task.is_urgent)) return false;
+        if (query) {
+          const haystack = `${task.title} ${task.tags.map((t) => t.name).join(" ")}`.toLowerCase();
+          if (!haystack.includes(query)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === "status") {
+          return TASK_STATUSES.indexOf(a.status) - TASK_STATUSES.indexOf(b.status);
+        }
+        if (sortBy === "project") {
+          const aName = a.project?.name ?? "";
+          const bName = b.project?.name ?? "";
+          if (!aName && bName) return 1;
+          if (aName && !bName) return -1;
+          return aName.localeCompare(bName);
+        }
+        if (sortBy === "assignee") {
+          const aName = a.assignee?.full_name ?? a.assignee?.email ?? "";
+          const bName = b.assignee?.full_name ?? b.assignee?.email ?? "";
+          if (!aName && bName) return 1;
+          if (aName && !bName) return -1;
+          return aName.localeCompare(bName);
+        }
+        if (!a.due_date) return 1;
+        if (!b.due_date) return -1;
+        return a.due_date.localeCompare(b.due_date);
+      });
+  }, [
+    tasks,
+    projectFilter,
+    assigneeFilter,
+    categoryFilter,
+    statusFilter,
+    flagFilter,
+    search,
+    sortBy,
+    includeCompleted,
+  ]);
 
   const groups = useMemo(() => {
     if (groupBy === "none") return [{ key: "all", label: null, tasks: filtered }];
@@ -183,6 +228,19 @@ export function DashboardView({ tasks, projects, categories, profiles, tags }: D
             <SelectItem value="none">No flag</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={sortBy} onValueChange={(v) => setSortBy((v ?? "due_date") as SortBy)}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue placeholder="Sort by">
+              {(v) => `Sort: ${SORT_BY_LABELS[v as SortBy] ?? "Due date"}`}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="due_date">Due date</SelectItem>
+            <SelectItem value="status">Status</SelectItem>
+            <SelectItem value="project">Project</SelectItem>
+            <SelectItem value="assignee">Assignee</SelectItem>
+          </SelectContent>
+        </Select>
         {view === "list" && (
           <Select value={groupBy} onValueChange={(v) => setGroupBy((v ?? "none") as GroupBy)}>
             <SelectTrigger className="w-[140px]">
@@ -199,6 +257,13 @@ export function DashboardView({ tasks, projects, categories, profiles, tags }: D
             </SelectContent>
           </Select>
         )}
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={includeCompleted}
+            onCheckedChange={(checked) => setIncludeCompleted(checked === true)}
+          />
+          Include completed
+        </label>
       </div>
 
       {view === "list" ? (

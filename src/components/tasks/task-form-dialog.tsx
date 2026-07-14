@@ -56,7 +56,17 @@ export function TaskFormDialog({ projects, categories, profiles, tags, task, tri
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen, eventDetails) => {
+        // Don't lose in-progress form data from an accidental click outside the dialog.
+        if (!nextOpen && eventDetails.reason === "outside-press") {
+          eventDetails.cancel();
+          return;
+        }
+        setOpen(nextOpen);
+      }}
+    >
       <DialogTrigger render={trigger as React.ReactElement} />
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
